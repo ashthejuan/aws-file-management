@@ -1,0 +1,123 @@
+name: Deploy Backend and Frontend
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/deploy.yml"
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  STACK_NAME: file-management-backend
+  FRONTEND_BUCKET: file-management-app-${{ secrets.AWS_ACCOUNT_ID }}
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend (SAM)
+    runs-on: ubuntu-latest
+    outputs:
+      api_url: ${{ steps.stack-outputs.outputs.api_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Build SAM application
+        run: |
+          cd backend
+          sam build --cached --parallel
+
+      - name: Deploy SAM application
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          VPC_ID: ${{ secrets.VPC_ID }}
+          PRIVATE_SUBNET_IDS: ${{ secrets.PRIVATE_SUBNET_IDS }}
+          ROUTE_TABLE_IDS: ${{ secrets.ROUTE_TABLE_IDS }}
+          ALLOWED_ORIGIN: ${{ secrets.ALLOWED_ORIGIN }}
+          MAX_UPLOAD_BYTES: ${{ secrets.MAX_UPLOAD_BYTES }}
+        run: |
+          cd backend
+          sam deploy \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --resolve-s3 \
+            --stack-name "${STACK_NAME}" \
+            --capabilities CAPABILITY_IAM \
+            --region "${AWS_REGION}" \
+            --parameter-overrides \
+              "JwtSecret=${JWT_SECRET}" \
+              "VpcId=${VPC_ID}" \
+              "PrivateSubnetIds=${PRIVATE_SUBNET_IDS}" \
+              "RouteTableIds=${ROUTE_TABLE_IDS}" \
+              "AllowedOrigins=${ALLOWED_ORIGIN}" \
+              "MaxUploadBytes=${MAX_UPLOAD_BYTES}"
+
+      - name: Read backend stack outputs
+        id: stack-outputs
+        run: |
+          api_url="$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+            --output text)"
+
+          if [ -z "${api_url}" ] || [ "${api_url}" = "None" ]; then
+            echo "ApiUrl output was not found on stack ${STACK_NAME}." >&2
+            exit 1
+          fi
+
+          echo "api_url=${api_url}" >> "${GITHUB_OUTPUT}"
+
+  deploy-frontend:
+    name: Deploy Frontend (S3 + CloudFront)
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies and build
+        env:
+          VITE_API_URL: ${{ needs.deploy-backend.outputs.api_url }}
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Deploy to S3
+        run: |
+          aws s3 sync frontend/dist "s3://${FRONTEND_BUCKET}" \
+            --delete \
+            --region "${AWS_REGION}"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
