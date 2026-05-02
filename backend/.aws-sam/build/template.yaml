@@ -1,0 +1,314 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: File Management System backend
+Parameters:
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Secret used to sign JWTs.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where Lambda and ElastiCache will run.
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: At least two private subnet IDs for Lambda and ElastiCache.
+  RouteTableIds:
+    Type: CommaDelimitedList
+    Description: Private route table IDs for S3 and DynamoDB gateway endpoints.
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: CORS origin allowed to call the API and upload to S3.
+  MaxUploadBytes:
+    Type: Number
+    Default: 52428800
+    Description: Maximum upload size accepted by the backend metadata API.
+Globals:
+  Api:
+    Cors:
+      AllowMethods: '''OPTIONS,POST,GET,DELETE'''
+      AllowHeaders: '''Content-Type,Authorization'''
+      AllowOrigin: '''*'''
+  Function:
+    Runtime: python3.12
+    Architectures:
+    - x86_64
+    MemorySize: 256
+    Timeout: 10
+    Tracing: Active
+    Layers:
+    - Ref: SharedLayer
+    VpcConfig:
+      SecurityGroupIds:
+      - Ref: LambdaSecurityGroup
+      SubnetIds:
+        Ref: PrivateSubnetIds
+    Environment:
+      Variables:
+        USERS_TABLE:
+          Ref: UsersTable
+        FILES_TABLE:
+          Ref: FilesTable
+        S3_BUCKET:
+          Ref: FileBucket
+        JWT_SECRET:
+          Ref: JwtSecret
+        JWT_TTL_SECONDS: '3600'
+        REDIS_ENDPOINT:
+          Fn::GetAtt:
+          - JwtCache
+          - RedisEndpoint.Address
+        REDIS_PORT:
+          Fn::GetAtt:
+          - JwtCache
+          - RedisEndpoint.Port
+        UPLOAD_URL_TTL_SECONDS: '300'
+        MAX_UPLOAD_BYTES:
+          Ref: MaxUploadBytes
+Resources:
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName:
+        Fn::Sub: ${AWS::StackName}-shared
+      ContentUri: SharedLayer
+      CompatibleRuntimes:
+      - python3.12
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: python3.12
+      SamResourceId: SharedLayer
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lambda functions for the file management backend
+      VpcId:
+        Ref: VpcId
+      SecurityGroupEgress:
+      - IpProtocol: -1
+        CidrIp: '0.0.0.0/0'
+  CacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Redis access from file management Lambdas only
+      VpcId:
+        Ref: VpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 6379
+        ToPort: 6379
+        SourceSecurityGroupId:
+          Ref: LambdaSecurityGroup
+  CacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Private subnets for the JWT Redis cache
+      SubnetIds:
+        Ref: PrivateSubnetIds
+  JwtCache:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      ClusterName:
+        Fn::Sub: ${AWS::StackName}-jwt-cache
+      Engine: redis
+      CacheNodeType: cache.t3.micro
+      NumCacheNodes: 1
+      AutoMinorVersionUpgrade: true
+      CacheSubnetGroupName:
+        Ref: CacheSubnetGroup
+      VpcSecurityGroupIds:
+      - Ref: CacheSecurityGroup
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId:
+        Ref: VpcId
+      ServiceName:
+        Fn::Sub: com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        Ref: RouteTableIds
+  DynamoDbGatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId:
+        Ref: VpcId
+      ServiceName:
+        Fn::Sub: com.amazonaws.${AWS::Region}.dynamodb
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        Ref: RouteTableIds
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      - AttributeName: email
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      GlobalSecondaryIndexes:
+      - IndexName: EmailIndex
+        KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+        Projection:
+          ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+  FilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      - AttributeName: fileId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      - AttributeName: fileId
+        KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+  FileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+        - AllowedOrigins:
+          - Ref: AllowedOrigin
+          AllowedMethods:
+          - PUT
+          - GET
+          AllowedHeaders:
+          - '*'
+          ExposedHeaders:
+          - ETag
+          MaxAge: 300
+  AuthSignupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: AuthSignupFunction
+      Handler: app.signup_handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersTable
+      Events:
+        Signup:
+          Type: Api
+          Properties:
+            Path: /signup
+            Method: POST
+    Metadata:
+      SamResourceId: AuthSignupFunction
+  AuthLoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: AuthLoginFunction
+      Handler: app.login_handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersTable
+      Events:
+        Login:
+          Type: Api
+          Properties:
+            Path: /login
+            Method: POST
+    Metadata:
+      SamResourceId: AuthLoginFunction
+  UploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: UploadFunction
+      Handler: app.request_upload_handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: FilesTable
+      - S3CrudPolicy:
+          BucketName:
+            Ref: FileBucket
+      Events:
+        RequestUpload:
+          Type: Api
+          Properties:
+            Path: /files
+            Method: POST
+    Metadata:
+      SamResourceId: UploadFunction
+  ListFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ListFunction
+      Handler: app.list_handler
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: FilesTable
+      Events:
+        ListFiles:
+          Type: Api
+          Properties:
+            Path: /files
+            Method: GET
+    Metadata:
+      SamResourceId: ListFunction
+  DeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: DeleteFunction
+      Handler: app.delete_handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: FilesTable
+      - S3CrudPolicy:
+          BucketName:
+            Ref: FileBucket
+      Events:
+        DeleteFile:
+          Type: Api
+          Properties:
+            Path: /files/{fileId}
+            Method: DELETE
+    Metadata:
+      SamResourceId: DeleteFunction
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/
+  RedisEndpoint:
+    Description: ElastiCache Redis endpoint
+    Value:
+      Fn::Sub: ${JwtCache.RedisEndpoint.Address}:${JwtCache.RedisEndpoint.Port}
+  FileBucketName:
+    Description: S3 bucket used for uploaded files
+    Value:
+      Ref: FileBucket
+  UsersTableName:
+    Description: DynamoDB table used for users
+    Value:
+      Ref: UsersTable
+  FilesTableName:
+    Description: DynamoDB table used for files
+    Value:
+      Ref: FilesTable

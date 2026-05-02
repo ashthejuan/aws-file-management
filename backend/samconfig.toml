@@ -1,0 +1,19 @@
+version = 0.1
+
+[default]
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+stack_name = "file-management-backend"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+fail_on_empty_changeset = false
+s3_prefix = "file-management-backend"
+parameter_overrides = "VpcId=\"vpc-060c2383015ac3a01\" PrivateSubnetIds=\"subnet-00aff26844c4ccbd9, subnet-0a6e26b7d7c91729b\" RouteTableIds=\"rtb-0d611724af5cbefa0\" AllowedOrigin=\"http://localhost:3000\" MaxUploadBytes=\"10485760\""
+image_repositories = []
+
+[default.global.parameters]
+region = "ap-south-1"
