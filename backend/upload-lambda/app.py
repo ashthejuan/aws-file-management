@@ -7,6 +7,7 @@ from pathlib import PurePath
 from typing import Any
 
 import boto3
+from botocore.config import Config
 
 from shared.auth import Unauthorized, require_auth
 from shared.dynamodb_utils import get_files_table
@@ -53,7 +54,12 @@ def _parse_size(value: Any) -> int:
 
 
 def _get_s3_client():
-    return boto3.client("s3")
+    config = Config(signature_version="s3v4", s3={"addressing_style": "virtual"})
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    if not region:
+        return boto3.client("s3", config=config)
+
+    return boto3.client("s3", region_name=region, config=config)
 
 
 def request_upload_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:

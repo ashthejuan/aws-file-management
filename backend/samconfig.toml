@@ -12,7 +12,7 @@ confirm_changeset = true
 resolve_s3 = true
 fail_on_empty_changeset = false
 s3_prefix = "file-management-backend"
-parameter_overrides = "VpcId=\"vpc-060c2383015ac3a01\" PrivateSubnetIds=\"subnet-00aff26844c4ccbd9, subnet-0a6e26b7d7c91729b\" RouteTableIds=\"rtb-0d611724af5cbefa0\" AllowedOrigin=\"http://localhost:3000\" MaxUploadBytes=\"10485760\""
+parameter_overrides = "VpcId=\"vpc-060c2383015ac3a01\" PrivateSubnetIds=\"subnet-00aff26844c4ccbd9, subnet-0a6e26b7d7c91729b\" RouteTableIds=\"rtb-0d611724af5cbefa0\" AllowedOrigins=\"http://localhost:5173,https://d3467yln33sd0e.cloudfront.net\" MaxUploadBytes=\"10485760\""
 image_repositories = []
 
 [default.global.parameters]

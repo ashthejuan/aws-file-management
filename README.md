@@ -1,8 +1,9 @@
 # File Management System
 
-Backend-first implementation of a file management API using AWS Lambda, API Gateway, DynamoDB, S3, ElastiCache Redis, and AWS SAM.
+Full-stack file management application.
 
-The current repository contains the backend only. The React frontend and GitHub Actions deployment workflow are intentionally deferred until the backend contract is stable.
+- **Backend** ([`backend/`](backend)): AWS Lambda, API Gateway, DynamoDB, S3, ElastiCache Redis, deployed with AWS SAM.
+- **Frontend** ([`frontend/`](frontend)): React + TypeScript SPA built with Vite. Minimalistic, monochrome UI with light/dark theme.
 
 ## Backend Architecture
 
@@ -32,6 +33,14 @@ backend/
   list-lambda/
   delete-lambda/
   tests/
+frontend/
+  package.json
+  vite.config.ts
+  src/
+    api/
+    auth/
+    screens/
+    utils/
 ```
 
 ## Prerequisites
@@ -116,3 +125,16 @@ curl -X PUT "$UPLOAD_URL" \
   -H "Content-Type: text/plain" \
   --data-binary "@test.txt"
 ```
+
+## Frontend
+
+```bash
+cd frontend
+npm install
+cp .env.example .env
+# Set VITE_API_URL in .env to the SAM stack's ApiUrl output.
+npm run dev
+```
+
+See [`frontend/README.md`](frontend/README.md) for full details on routes,
+build/deploy, and configuration.
