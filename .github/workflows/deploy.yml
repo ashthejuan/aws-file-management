@@ -62,6 +62,46 @@ jobs:
             fi
           }
 
+          normalize_csv() {
+            local value="$1"
+            value="${value//[[:space:]]/}"
+            echo "${value}"
+          }
+
+          validate_csv_ids() {
+            local name="$1"
+            local value="$2"
+            local id_pattern="$3"
+            local min_count="$4"
+            local normalized
+
+            normalized="$(normalize_csv "${value}")"
+
+            if [ -z "${normalized}" ]; then
+              return
+            fi
+
+            if [[ "${normalized}" == *, || "${normalized}" == ,* || "${normalized}" == *,,* ]]; then
+              echo "::error::${name} must be a comma-separated list without empty values or trailing commas."
+              missing=1
+              return
+            fi
+
+            IFS=',' read -r -a ids <<< "${normalized}"
+
+            if [ "${#ids[@]}" -lt "${min_count}" ]; then
+              echo "::error::${name} must contain at least ${min_count} value(s)."
+              missing=1
+            fi
+
+            for id in "${ids[@]}"; do
+              if ! [[ "${id}" =~ ${id_pattern} ]]; then
+                echo "::error::${name} contains an invalid id."
+                missing=1
+              fi
+            done
+          }
+
           require "JWT_SECRET" "${JWT_SECRET}" "Add a GitHub Actions repository secret that is at least 32 characters."
           require "VPC_ID" "${VPC_ID_INPUT}" "Add a repository variable or secret named VPC_ID."
           require "PRIVATE_SUBNET_IDS" "${PRIVATE_SUBNET_IDS_INPUT}" "Add a comma-separated repository variable or secret named PRIVATE_SUBNET_IDS."
@@ -77,9 +117,20 @@ jobs:
             missing=1
           fi
 
+          if ! [[ "${VPC_ID_INPUT}" =~ ^vpc-[0-9a-f]+$ ]]; then
+            echo "::error::VPC_ID must look like vpc-xxxxxxxx."
+            missing=1
+          fi
+
+          validate_csv_ids "PRIVATE_SUBNET_IDS" "${PRIVATE_SUBNET_IDS_INPUT}" '^subnet-[0-9a-f]+$' 2
+          validate_csv_ids "ROUTE_TABLE_IDS" "${ROUTE_TABLE_IDS_INPUT}" '^rtb-[0-9a-f]+$' 1
+
           if [ "${missing}" -ne 0 ]; then
             exit 1
           fi
+
+          PRIVATE_SUBNET_IDS_INPUT="$(normalize_csv "${PRIVATE_SUBNET_IDS_INPUT}")"
+          ROUTE_TABLE_IDS_INPUT="$(normalize_csv "${ROUTE_TABLE_IDS_INPUT}")"
 
           {
             echo "VPC_ID=${VPC_ID_INPUT}"

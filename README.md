@@ -96,6 +96,8 @@ The GitHub Actions deploy workflow requires `AWS_ACCESS_KEY_ID`,
 must be at least 32 characters. Non-secret deployment settings such as
 `AWS_REGION`, `VPC_ID`, `PRIVATE_SUBNET_IDS`, `ROUTE_TABLE_IDS`,
 `ALLOWED_ORIGINS`, and `MAX_UPLOAD_BYTES` can be set as repository variables.
+Set `PRIVATE_SUBNET_IDS` to two real subnet IDs with no trailing comma, for
+example `subnet-aaaaaaaa,subnet-bbbbbbbb`.
 
 Useful SAM outputs:
 
