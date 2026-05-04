@@ -10,7 +10,8 @@ on:
       - ".github/workflows/deploy.yml"
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'ap-south-1' }}
   STACK_NAME: file-management-backend
   FRONTEND_BUCKET: file-management-app-${{ secrets.AWS_ACCOUNT_ID }}
 
@@ -39,14 +40,58 @@ jobs:
           cd backend
           sam build --cached --parallel
 
+      - name: Validate backend deployment inputs
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          VPC_ID_INPUT: ${{ vars.VPC_ID || secrets.VPC_ID || 'vpc-060c2383015ac3a01' }}
+          PRIVATE_SUBNET_IDS_INPUT: ${{ vars.PRIVATE_SUBNET_IDS || secrets.PRIVATE_SUBNET_IDS || 'subnet-00aff26844c4ccbd9,subnet-0a6e26b7d7c91729b' }}
+          ROUTE_TABLE_IDS_INPUT: ${{ vars.ROUTE_TABLE_IDS || secrets.ROUTE_TABLE_IDS || 'rtb-0d611724af5cbefa0' }}
+          ALLOWED_ORIGINS_INPUT: ${{ vars.ALLOWED_ORIGINS || secrets.ALLOWED_ORIGINS || secrets.ALLOWED_ORIGIN || 'http://localhost:5173,https://d3467yln33sd0e.cloudfront.net' }}
+          MAX_UPLOAD_BYTES_INPUT: ${{ vars.MAX_UPLOAD_BYTES || secrets.MAX_UPLOAD_BYTES || '10485760' }}
+        run: |
+          missing=0
+
+          require() {
+            local name="$1"
+            local value="$2"
+            local hint="$3"
+
+            if [ -z "${value}" ]; then
+              echo "::error::Missing ${name}. ${hint}"
+              missing=1
+            fi
+          }
+
+          require "JWT_SECRET" "${JWT_SECRET}" "Add a GitHub Actions repository secret that is at least 32 characters."
+          require "VPC_ID" "${VPC_ID_INPUT}" "Add a repository variable or secret named VPC_ID."
+          require "PRIVATE_SUBNET_IDS" "${PRIVATE_SUBNET_IDS_INPUT}" "Add a comma-separated repository variable or secret named PRIVATE_SUBNET_IDS."
+          require "ROUTE_TABLE_IDS" "${ROUTE_TABLE_IDS_INPUT}" "Add a comma-separated repository variable or secret named ROUTE_TABLE_IDS."
+
+          if [ -n "${JWT_SECRET}" ] && [ "${#JWT_SECRET}" -lt 32 ]; then
+            echo "::error::JWT_SECRET must be at least 32 characters."
+            missing=1
+          fi
+
+          if ! [[ "${MAX_UPLOAD_BYTES_INPUT}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::MAX_UPLOAD_BYTES must be a positive integer."
+            missing=1
+          fi
+
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+          {
+            echo "VPC_ID=${VPC_ID_INPUT}"
+            echo "PRIVATE_SUBNET_IDS=${PRIVATE_SUBNET_IDS_INPUT}"
+            echo "ROUTE_TABLE_IDS=${ROUTE_TABLE_IDS_INPUT}"
+            echo "ALLOWED_ORIGINS=${ALLOWED_ORIGINS_INPUT}"
+            echo "MAX_UPLOAD_BYTES=${MAX_UPLOAD_BYTES_INPUT}"
+          } >> "${GITHUB_ENV}"
+
       - name: Deploy SAM application
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          VPC_ID: ${{ secrets.VPC_ID }}
-          PRIVATE_SUBNET_IDS: ${{ secrets.PRIVATE_SUBNET_IDS }}
-          ROUTE_TABLE_IDS: ${{ secrets.ROUTE_TABLE_IDS }}
-          ALLOWED_ORIGIN: ${{ secrets.ALLOWED_ORIGIN }}
-          MAX_UPLOAD_BYTES: ${{ secrets.MAX_UPLOAD_BYTES }}
         run: |
           cd backend
           sam deploy \
@@ -61,7 +106,7 @@ jobs:
               "VpcId=${VPC_ID}" \
               "PrivateSubnetIds=${PRIVATE_SUBNET_IDS}" \
               "RouteTableIds=${ROUTE_TABLE_IDS}" \
-              "AllowedOrigins=${ALLOWED_ORIGIN}" \
+              "AllowedOrigins=${ALLOWED_ORIGINS}" \
               "MaxUploadBytes=${MAX_UPLOAD_BYTES}"
 
       - name: Read backend stack outputs

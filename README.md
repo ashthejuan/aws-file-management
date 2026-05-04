@@ -87,9 +87,15 @@ sam deploy \
     VpcId="vpc-xxxxxxxx" \
     PrivateSubnetIds="subnet-aaaaaaaa,subnet-bbbbbbbb" \
     RouteTableIds="rtb-aaaaaaaa,rtb-bbbbbbbb" \
-    AllowedOrigin="*" \
+    AllowedOrigins="*" \
     MaxUploadBytes="52428800"
 ```
+
+The GitHub Actions deploy workflow requires `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, and `JWT_SECRET` as repository secrets. `JWT_SECRET`
+must be at least 32 characters. Non-secret deployment settings such as
+`AWS_REGION`, `VPC_ID`, `PRIVATE_SUBNET_IDS`, `ROUTE_TABLE_IDS`,
+`ALLOWED_ORIGINS`, and `MAX_UPLOAD_BYTES` can be set as repository variables.
 
 Useful SAM outputs:
 
