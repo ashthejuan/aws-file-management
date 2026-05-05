@@ -13,7 +13,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'ap-south-1' }}
   STACK_NAME: file-management-backend
-  FRONTEND_BUCKET: file-management-app-${{ secrets.AWS_ACCOUNT_ID }}
+  FRONTEND_BUCKET: ${{ vars.FRONTEND_BUCKET || secrets.FRONTEND_BUCKET || format('file-management-frontend-{0}', secrets.AWS_ACCOUNT_ID) }}
 
 jobs:
   deploy-backend:
@@ -205,6 +205,18 @@ jobs:
           cd frontend
           npm ci
           npm run build
+
+      - name: Validate frontend bucket
+        run: |
+          if [ -z "${FRONTEND_BUCKET}" ]; then
+            echo "::error::FRONTEND_BUCKET is empty. Set FRONTEND_BUCKET or AWS_ACCOUNT_ID in repository variables/secrets."
+            exit 1
+          fi
+
+          if ! aws s3api head-bucket --bucket "${FRONTEND_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
+            echo "::error::Frontend bucket ${FRONTEND_BUCKET} does not exist or is not accessible in ${AWS_REGION}."
+            exit 1
+          fi
 
       - name: Deploy to S3
         run: |
