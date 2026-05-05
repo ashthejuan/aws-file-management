@@ -94,11 +94,22 @@ sam deploy \
 The GitHub Actions deploy workflow requires `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, and `JWT_SECRET` as repository secrets. `JWT_SECRET`
 must be at least 32 characters. Non-secret deployment settings such as
-`AWS_REGION`, `FRONTEND_BUCKET`, `VPC_ID`, `PRIVATE_SUBNET_IDS`,
-`ROUTE_TABLE_IDS`, `ALLOWED_ORIGINS`, and `MAX_UPLOAD_BYTES` can be set as
-repository variables.
+`AWS_REGION`, `FRONTEND_BUCKET`, `CLOUDFRONT_DISTRIBUTION_ID`, `VPC_ID`,
+`PRIVATE_SUBNET_IDS`, `ROUTE_TABLE_IDS`, `ALLOWED_ORIGINS`, and
+`MAX_UPLOAD_BYTES` can be set as repository variables.
 Set `PRIVATE_SUBNET_IDS` to two real subnet IDs with no trailing comma, for
 example `subnet-aaaaaaaa,subnet-bbbbbbbb`.
+
+The deployment IAM user also needs permission to invalidate the frontend
+CloudFront distribution:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "cloudfront:CreateInvalidation",
+  "Resource": "arn:aws:cloudfront::<aws-account-id>:distribution/<distribution-id>"
+}
+```
 
 Useful SAM outputs:
 

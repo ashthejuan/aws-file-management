@@ -14,6 +14,7 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'ap-south-1' }}
   STACK_NAME: file-management-backend
   FRONTEND_BUCKET: ${{ vars.FRONTEND_BUCKET || secrets.FRONTEND_BUCKET || format('file-management-frontend-{0}', secrets.AWS_ACCOUNT_ID) }}
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID || secrets.CLOUDFRONT_DISTRIBUTION_ID }}
 
 jobs:
   deploy-backend:
@@ -213,6 +214,11 @@ jobs:
             exit 1
           fi
 
+          if [ -z "${CLOUDFRONT_DISTRIBUTION_ID}" ]; then
+            echo "::error::CLOUDFRONT_DISTRIBUTION_ID is empty. Set it as a repository variable or secret."
+            exit 1
+          fi
+
           if ! aws s3api head-bucket --bucket "${FRONTEND_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
             echo "::error::Frontend bucket ${FRONTEND_BUCKET} does not exist or is not accessible in ${AWS_REGION}."
             exit 1
@@ -227,5 +233,5 @@ jobs:
       - name: Invalidate CloudFront cache
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --distribution-id "${CLOUDFRONT_DISTRIBUTION_ID}" \
             --paths "/*"
